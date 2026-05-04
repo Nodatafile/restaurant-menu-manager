@@ -20,6 +20,24 @@ const Login = () => {
     return null;
   }
 
+  const redirectBasedOnRole = (user) => {
+    const from = location.state?.from?.pathname || '/';
+    
+    switch (user.department) {
+      case 'reservation':
+        navigate('/reservation', { replace: true });
+        break;
+      case 'operation':
+        navigate('/operation', { replace: true });
+        break;
+      case 'admin':
+        navigate('/reservation', { replace: true });
+        break;
+      default:
+        navigate(from, { replace: true });
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -37,24 +55,6 @@ const Login = () => {
       setError('로그인 중 오류가 발생했습니다');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const redirectBasedOnRole = (user) => {
-    const from = location.state?.from?.pathname || '/';
-    
-    switch (user.department) {
-      case 'reservation':
-        navigate('/reservation', { replace: true });
-        break;
-      case 'operation':
-        navigate('/operation', { replace: true });
-        break;
-      case 'admin':
-        navigate('/reservation', { replace: true });
-        break;
-      default:
-        navigate(from, { replace: true });
     }
   };
 
