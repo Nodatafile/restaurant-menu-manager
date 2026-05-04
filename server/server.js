@@ -123,6 +123,15 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/', (req, res) => {
+  res.json({
+    message: '🍽️ 레스토랑 API 서버',
+    version: '1.0.0',
+    status: 'running',
+    docs: '/health'
+  });
+});
+
 // ============================================
 // Socket.io 이벤트 핸들러
 // ============================================
