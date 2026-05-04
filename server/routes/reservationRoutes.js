@@ -3,6 +3,7 @@ const router = express.Router();
 const ReservationService = require('../services/ReservationService');
 const Reservation = require('../models/Reservation');
 const DailyInventory = require('../models/DailyInventory');
+const { authenticate, authorize } = require('../middleware/auth');
 
 // 예약 생성 (선주문 포함)
 router.post('/', async (req, res) => {
@@ -146,4 +147,6 @@ router.get('/list', async (req, res) => {
   }
 });
 
+// 모든 라우트에 인증 적용
+router.use(authenticate);
 module.exports = router;
