@@ -8,8 +8,7 @@ const LiveMenuBoard = () => {
   const { roomId } = useParams();
   const { menus, socket } = useSocket();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [animations, setAnimations] = useState({});
-
+ 
   const roomNames = {
     main: '메인 한식당',
     room2: '2회의실',
