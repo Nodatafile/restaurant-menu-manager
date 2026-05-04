@@ -80,4 +80,13 @@ userSchema.pre('save', function(next) {
   next();
 });
 
+// 기존 User 모델에 이 메서드 추가
+userSchema.methods.comparePassword = async function(candidatePassword) {
+  try {
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    throw new Error('비밀번호 비교 실패');
+  }
+};
+
 module.exports = mongoose.model('User', userSchema);
