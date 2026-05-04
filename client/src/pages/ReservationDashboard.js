@@ -29,7 +29,8 @@ const ReservationDashboard = () => {
   useEffect(() => {
     fetchReservations();
     fetchDailySummary();
-  }, [selectedDate]);
+     // eslint-disable-next-line
+}, [selectedDate]);
 
   const fetchReservations = async () => {
     try {
