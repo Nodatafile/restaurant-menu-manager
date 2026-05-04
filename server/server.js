@@ -2,10 +2,17 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
 const mongoose = require('mongoose');
+const path = require('path');
+
+// 미들웨어 임포트
+const { authenticate, authorize } = require('./middleware/auth');
+const { notFound, errorHandler } = require('./middleware/errorHandler');
+const { apiLimiter, loginLimiter, creationLimiter } = require('./middleware/rateLimiter');
+const requestLogger = require('./middleware/requestLogger');
+const { corsOptions, securityHeaders } = require('./middleware/security');
+
+// 유틸리티 임포트
 const connectDB = require('./config/database');
 const logger = require('./utils/logger');
 
@@ -16,7 +23,7 @@ const operationRoutes = require('./routes/operationRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const authRoutes = require('./routes/authRoutes');
 
-// 모델 임포트
+// 모델 임포트 (Socket.io에서 사용)
 const Menu = require('./models/Menu');
 const Order = require('./models/Order');
 const Reservation = require('./models/Reservation');
@@ -37,39 +44,99 @@ const io = socketIo(server, {
   pingInterval: 25000
 });
 
-// 미들웨어 설정
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true
-}));
-app.use(morgan('combined'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ============================================
+// 기본 미들웨어 설정 (순서 중요!)
+// ============================================
+
+// 1. 보안 헤더
+app.use(securityHeaders);
+
+// 2. CORS
+app.use(corsOptions);
+
+// 3. 요청 로깅
+app.use(requestLogger);
+
+// 4. Body 파싱
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 5. 정적 파일 서빙 (프로덕션)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../client/build')));
+}
+
+// 6. API 속도 제한
+app.use('/api/', apiLimiter);
 
 // io 객체를 request에서 접근 가능하게 설정
 app.set('io', io);
 
-// MongoDB 연결
+// ============================================
+// 데이터베이스 연결
+// ============================================
 connectDB();
 
-// 라우트 설정
-app.use('/api/menus', menuRoutes);
-app.use('/api/reservations', reservationRoutes);
-app.use('/api/operations', operationRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/auth', authRoutes);
+// ============================================
+// 라우트 설정 (미들웨어 포함)
+// ============================================
 
-// 상태 확인 엔드포인트
+// 인증 라우트 (속도 제한 적용)
+app.use('/api/auth', loginLimiter, authRoutes);
+
+// 메뉴 관리 라우트 (인증 + 권한 필요)
+app.use('/api/menus', 
+  authenticate, 
+  authorize('admin', 'operation', 'reservation'), 
+  menuRoutes
+);
+
+// 예약 관리 라우트 (인증 + 예약실/관리자만)
+app.use('/api/reservations', 
+  authenticate, 
+  authorize('reservation', 'admin'), 
+  creationLimiter, 
+  reservationRoutes
+);
+
+// 운영 관리 라우트 (인증 + 운영과/관리자만)
+app.use('/api/operations', 
+  authenticate, 
+  authorize('operation', 'admin'), 
+  operationRoutes
+);
+
+// 주문 관리 라우트 (인증 + 운영과/관리자만)
+app.use('/api/orders', 
+  authenticate, 
+  authorize('operation', 'admin'), 
+  creationLimiter, 
+  orderRoutes
+);
+
+// ============================================
+// 상태 확인 엔드포인트 (인증 불필요)
+// ============================================
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    websocket: io.engine.clientsCount + ' clients connected',
-    uptime: process.uptime()
+    websocket: `${io.engine.clientsCount} clients connected`,
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
+
+// ============================================
+// 프로덕션 환경: React 앱 서빙
+// ============================================
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+  });
+}
 
 // ============================================
 // Socket.io 이벤트 핸들러
@@ -80,11 +147,13 @@ const restaurantNamespace = io.of('/restaurant');
 const operationNamespace = io.of('/operation');
 const reservationNamespace = io.of('/reservation');
 
+// ============================================
 // 레스토랑 메인 네임스페이스
+// ============================================
 restaurantNamespace.on('connection', (socket) => {
-  console.log(`🔌 레스토랑 클라이언트 연결: ${socket.id}`);
+  logger.info(`🔌 레스토랑 클라이언트 연결: ${socket.id}`);
   
-  // 클라이언트 정보
+  // 클라이언트 정보 저장
   let clientInfo = {
     id: socket.id,
     department: null,
@@ -100,21 +169,18 @@ restaurantNamespace.on('connection', (socket) => {
     clientInfo.userName = userName || 'Unknown';
     
     socket.join(room);
-    socket.join(department); // 부서별 룸도 조인
+    socket.join(department);
     
-    console.log(`${userName}(${department})님이 ${room}에 조인`);
+    logger.info(`${userName}(${department})님이 ${room}에 조인`);
     
-    // 해당 방의 현재 메뉴 상태 전송
     try {
       const menus = await Menu.find({ isAvailable: true });
       const today = new Date();
       const dateStr = today.toISOString().slice(0, 10);
       
-      // 예약 선주문 정보 포함
       const dailyInventory = await DailyInventory.findOne({ date: dateStr })
         .populate('menuItems.preOrders.reservationId');
       
-      // 예약 정보
       const reservations = await Reservation.find({
         reservationDate: {
           $gte: new Date(today.getFullYear(), today.getMonth(), today.getDate()),
@@ -134,6 +200,7 @@ restaurantNamespace.on('connection', (socket) => {
         const lowStockMenus = menus.filter(m => m.currentStock <= 5);
         if (lowStockMenus.length > 0) {
           socket.emit('stockAlert', {
+            type: 'warning',
             message: `${lowStockMenus.length}개 메뉴 재고 부족`,
             menus: lowStockMenus
           });
@@ -141,6 +208,7 @@ restaurantNamespace.on('connection', (socket) => {
       }
       
     } catch (error) {
+      logger.error('메뉴 정보 로드 실패:', error);
       socket.emit('error', { message: '메뉴 정보 로드 실패' });
     }
   });
@@ -204,7 +272,7 @@ restaurantNamespace.on('connection', (socket) => {
           preOrder.servedQuantity = Math.min(quantity, preOrder.quantity);
           await reservation.save();
           
-          // 일일 재고에서도 업데이트
+          // 일일 재고 업데이트
           const dateStr = today.toISOString().slice(0, 10);
           const dailyInventory = await DailyInventory.findOne({ date: dateStr });
           if (dailyInventory) {
@@ -236,6 +304,7 @@ restaurantNamespace.on('connection', (socket) => {
       });
       
       await order.save();
+      await order.populate('menuItem');
       
       // 재고 감소
       menu.currentStock -= quantity;
@@ -244,18 +313,13 @@ restaurantNamespace.on('connection', (socket) => {
       }
       await menu.save();
       
-      // 생성된 주문 populate
-      await order.populate('menuItem');
-      
       // ============================================
       // 실시간 업데이트 브로드캐스트
       // ============================================
       
-      // 1. 모든 클라이언트에 메뉴 업데이트
       const updatedMenus = await Menu.find({ isAvailable: true });
       restaurantNamespace.emit('menuUpdate', { menus: updatedMenus });
       
-      // 2. 주문 정보 브로드캐스트
       const orderNotification = {
         order,
         matchedReservation: matchedReservation ? {
@@ -266,7 +330,6 @@ restaurantNamespace.on('connection', (socket) => {
       
       restaurantNamespace.emit('newOrder', orderNotification);
       
-      // 3. 해당 회의실에만 상세 알림
       restaurantNamespace.to(room).emit('roomOrderUpdate', {
         type: 'order',
         message: `${menu.name} ${quantity}개 주문 완료`,
@@ -279,7 +342,6 @@ restaurantNamespace.on('connection', (socket) => {
         } : null
       });
       
-      // 4. 운영과에 특별 알림
       if (preOrderInfo) {
         operationNamespace.emit('preOrderServed', {
           reservation: matchedReservation,
@@ -288,24 +350,25 @@ restaurantNamespace.on('connection', (socket) => {
         });
       }
       
-      // 5. 재고 부족 경고
+      // 재고 부족 경고
       if (menu.currentStock <= 5) {
-        operationNamespace.emit('stockAlert', {
+        const alertData = {
           type: 'low_stock',
-          menu: menu,
+          menu: { id: menu._id, name: menu.name, currentStock: menu.currentStock },
           message: `⚠️ ${menu.name} 재고 부족! (${menu.currentStock}개 남음)`
-        });
+        };
         
-        // 예약실에도 경고
+        operationNamespace.emit('stockAlert', alertData);
         reservationNamespace.emit('stockAlert', {
-          type: 'low_stock',
-          menu: menu,
+          ...alertData,
           message: `${menu.name} 재고가 ${menu.currentStock}개 남았습니다. 추가 예약 선주문 제한이 필요할 수 있습니다.`
         });
       }
       
+      logger.info(`주문 완료: ${room} - ${menu.name} ${quantity}개 (${staffName || clientInfo.userName})`);
+      
     } catch (error) {
-      console.error('주문 처리 에러:', error);
+      logger.error('주문 처리 에러:', error);
       socket.emit('orderError', { message: error.message });
     }
   });
@@ -323,12 +386,10 @@ restaurantNamespace.on('connection', (socket) => {
         return;
       }
       
-      // 기존 주문 확인
-      let originalOrder = null;
+      // 기존 주문 확인 및 선주문 복구
       if (orderId) {
-        originalOrder = await Order.findById(orderId);
+        const originalOrder = await Order.findById(orderId);
         if (originalOrder && originalOrder.isPreOrderServed) {
-          // 선주문 서빙 취소 시 예약 복구
           const reservation = await Reservation.findById(originalOrder.matchedReservation);
           if (reservation) {
             const preOrder = reservation.preOrders.find(
@@ -340,7 +401,6 @@ restaurantNamespace.on('connection', (socket) => {
               preOrder.servedQuantity = 0;
               await reservation.save();
               
-              // 일일 재고 업데이트
               const today = new Date();
               const dateStr = today.toISOString().slice(0, 10);
               const dailyInventory = await DailyInventory.findOne({ date: dateStr });
@@ -374,15 +434,14 @@ restaurantNamespace.on('connection', (socket) => {
       });
       
       await cancelOrder.save();
+      await cancelOrder.populate('menuItem');
       
       // 재고 복구
       menu.currentStock += quantity;
       menu.isAvailable = true;
       await menu.save();
       
-      await cancelOrder.populate('menuItem');
-      
-      // 업데이트 브로드캐스트
+      // 브로드캐스트
       const updatedMenus = await Menu.find({ isAvailable: true });
       
       restaurantNamespace.emit('menuUpdate', { menus: updatedMenus });
@@ -398,13 +457,15 @@ restaurantNamespace.on('connection', (socket) => {
       if (menu.currentStock > 5) {
         reservationNamespace.emit('stockAlert', {
           type: 'restored',
-          menu: menu,
+          menu: { id: menu._id, name: menu.name, currentStock: menu.currentStock },
           message: `${menu.name} 재고가 ${menu.currentStock}개로 회복되었습니다.`
         });
       }
       
+      logger.info(`주문 취소: ${room} - ${menu.name} ${quantity}개 (${staffName || clientInfo.userName})`);
+      
     } catch (error) {
-      console.error('취소 처리 에러:', error);
+      logger.error('취소 처리 에러:', error);
       socket.emit('cancelError', { message: error.message });
     }
   });
@@ -420,20 +481,17 @@ restaurantNamespace.on('connection', (socket) => {
         createdBy: clientInfo.userName
       });
       
-      // 예약 생성 성공 알림
       reservationNamespace.emit('reservationCreated', {
         reservation: result.reservation,
         affectedMenus: result.affectedMenus
       });
       
-      // 관련 회의실에 알림
       restaurantNamespace.to(reservationData.room).emit('roomOrderUpdate', {
         type: 'reservation',
         message: `📋 새 예약: ${reservationData.customerName}님 (${reservationData.numberOfGuests}명)`,
         reservation: result.reservation
       });
       
-      // 운영과에 선주문 알림
       if (reservationData.preOrders && reservationData.preOrders.length > 0) {
         operationNamespace.emit('preOrderAlert', {
           message: `새로운 예약 선주문: ${reservationData.customerName}님`,
@@ -447,7 +505,10 @@ restaurantNamespace.on('connection', (socket) => {
         reservation: result.reservation
       });
       
+      logger.info(`예약 생성: ${reservationData.customerName} (${reservationData.room})`);
+      
     } catch (error) {
+      logger.error('예약 생성 에러:', error);
       socket.emit('reservationError', { message: error.message });
     }
   });
@@ -464,13 +525,11 @@ restaurantNamespace.on('connection', (socket) => {
         cancelledBy || clientInfo.userName
       );
       
-      // 전체 알림
       restaurantNamespace.emit('reservationCancelled', {
         reservationId,
         message: '예약이 취소되었습니다'
       });
       
-      // 운영과 알림 (재고 회복)
       operationNamespace.emit('stockAlert', {
         type: 'restored',
         message: '예약 취소로 재고가 복구되었습니다',
@@ -482,7 +541,10 @@ restaurantNamespace.on('connection', (socket) => {
         message: '예약이 취소되었습니다'
       });
       
+      logger.info(`예약 취소: ${reservationId}`);
+      
     } catch (error) {
+      logger.error('예약 취소 에러:', error);
       socket.emit('reservationError', { message: error.message });
     }
   });
@@ -515,7 +577,6 @@ restaurantNamespace.on('connection', (socket) => {
       menu.isAvailable = menu.currentStock > 0;
       await menu.save();
       
-      // 브로드캐스트
       const updatedMenus = await Menu.find({ isAvailable: true });
       restaurantNamespace.emit('menuUpdate', { menus: updatedMenus });
       operationNamespace.emit('stockAdjusted', {
@@ -525,13 +586,16 @@ restaurantNamespace.on('connection', (socket) => {
         adjustedBy: clientInfo.userName
       });
       
+      logger.info(`재고 조정: ${menu.name} ${type} ${quantity} → ${menu.currentStock}개`);
+      
     } catch (error) {
+      logger.error('재고 조정 에러:', error);
       socket.emit('stockError', { message: error.message });
     }
   });
 
   // ============================================
-  // 재고 현황 요청
+  // 데이터 요청 핸들러
   // ============================================
   socket.on('requestMenuUpdate', async () => {
     try {
@@ -542,9 +606,6 @@ restaurantNamespace.on('connection', (socket) => {
     }
   });
 
-  // ============================================
-  // 예약 선주문 현황 요청 (운영과)
-  // ============================================
   socket.on('requestPreOrders', async (data) => {
     try {
       const { room } = data;
@@ -567,9 +628,8 @@ restaurantNamespace.on('connection', (socket) => {
 
   // 연결 해제
   socket.on('disconnect', () => {
-    console.log(`클라이언트 연결 해제: ${socket.id} (${clientInfo.userName})`);
+    logger.info(`클라이언트 연결 해제: ${socket.id} (${clientInfo.userName})`);
     
-    // 특정 부서/회의실에서 나갈 때 알림
     if (clientInfo.room) {
       restaurantNamespace.to(clientInfo.room).emit('userLeft', {
         userName: clientInfo.userName,
@@ -583,13 +643,12 @@ restaurantNamespace.on('connection', (socket) => {
 // 운영과 전용 네임스페이스
 // ============================================
 operationNamespace.on('connection', (socket) => {
-  console.log(`🔧 운영과 클라이언트 연결: ${socket.id}`);
+  logger.info(`🔧 운영과 클라이언트 연결: ${socket.id}`);
   
   socket.on('joinOperation', async (data) => {
     const { userName } = data;
-    console.log(`운영과 ${userName} 연결됨`);
+    logger.info(`운영과 ${userName} 연결됨`);
     
-    // 초기 데이터 전송
     try {
       const menus = await Menu.find({ isAvailable: true });
       const today = new Date();
@@ -611,7 +670,6 @@ operationNamespace.on('connection', (socket) => {
         timestamp: new Date()
       });
       
-      // 재고 부족 경고
       const lowStockMenus = menus.filter(m => m.currentStock <= 5);
       if (lowStockMenus.length > 0) {
         socket.emit('stockAlert', {
@@ -622,6 +680,7 @@ operationNamespace.on('connection', (socket) => {
       }
       
     } catch (error) {
+      logger.error('운영 데이터 로드 실패:', error);
       socket.emit('error', { message: '운영 데이터 로드 실패' });
     }
   });
@@ -631,13 +690,12 @@ operationNamespace.on('connection', (socket) => {
 // 예약실 전용 네임스페이스
 // ============================================
 reservationNamespace.on('connection', (socket) => {
-  console.log(`📋 예약실 클라이언트 연결: ${socket.id}`);
+  logger.info(`📋 예약실 클라이언트 연결: ${socket.id}`);
   
   socket.on('joinReservation', async (data) => {
     const { userName } = data;
-    console.log(`예약실 ${userName} 연결됨`);
+    logger.info(`예약실 ${userName} 연결됨`);
     
-    // 초기 데이터 전송
     try {
       const today = new Date();
       const dateStr = today.toISOString().slice(0, 10);
@@ -661,42 +719,17 @@ reservationNamespace.on('connection', (socket) => {
       });
       
     } catch (error) {
+      logger.error('예약 데이터 로드 실패:', error);
       socket.emit('error', { message: '예약 데이터 로드 실패' });
     }
   });
 });
 
 // ============================================
-// 에러 핸들링 미들웨어
+// 에러 핸들링 미들웨어 (라우트 다음에 위치)
 // ============================================
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  
-  // Socket.io로 에러 전파
-  if (req.app.get('io')) {
-    req.app.get('io').emit('serverError', {
-      message: process.env.NODE_ENV === 'production' 
-        ? '서버 내부 오류가 발생했습니다' 
-        : err.message,
-      timestamp: new Date()
-    });
-  }
-  
-  res.status(500).json({
-    success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? '서버 내부 오류' 
-      : err.message
-  });
-});
-
-// 404 처리
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: '요청한 리소스를 찾을 수 없습니다'
-  });
-});
+app.use(notFound);
+app.use(errorHandler);
 
 // ============================================
 // 서버 시작
@@ -704,37 +737,51 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`
+  logger.info(`
   🚀 서버 실행 중
-  ┌─────────────────────────────────────────────┐
-  │ REST API    : http://localhost:${PORT}          │
-  │ WebSocket   : ws://localhost:${PORT}            │
+  ┌─────────────────────────────────────────────────┐
+  │ REST API    : http://localhost:${PORT}              │
+  │ WebSocket   : ws://localhost:${PORT}               │
   │ Namespaces  : /restaurant, /operation, /reservation │
-  │ Environment : ${process.env.NODE_ENV || 'development'}                 │
+  │ Environment : ${process.env.NODE_ENV || 'development'}                     │
   │ MongoDB     : ${mongoose.connection.readyState === 1 ? '✅ Connected' : '❌ Disconnected'} │
-  └─────────────────────────────────────────────┘
+  │ Rate Limit  : ${process.env.NODE_ENV === 'production' ? 'Enabled' : 'Disabled'}            │
+  └─────────────────────────────────────────────────┘
   `);
 });
 
+// ============================================
 // 프로세스 종료 처리
+// ============================================
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. 서버 종료 중...');
+  logger.info('SIGTERM received. 서버 종료 중...');
   server.close(() => {
     mongoose.connection.close(false, () => {
-      console.log('MongoDB 연결 종료');
+      logger.info('MongoDB 연결 종료');
       process.exit(0);
     });
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received. 서버 종료 중...');
+  logger.info('SIGINT received. 서버 종료 중...');
   server.close(() => {
     mongoose.connection.close(false, () => {
-      console.log('MongoDB 연결 종료');
+      logger.info('MongoDB 연결 종료');
       process.exit(0);
     });
   });
+});
+
+// 처리되지 않은 예외 처리
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
 
 module.exports = { app, server, io };
