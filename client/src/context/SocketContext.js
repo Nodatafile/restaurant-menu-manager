@@ -347,15 +347,15 @@ export const SocketProvider = ({ children }) => {
     connectSocket();
 
     // 클린업
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => {
       if (socketRef.current) {
         console.log('🔌 소켓 연결 종료');
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      const timer = reconnectTimerRef.current;
-      if (timer) {
-        clearTimeout(timer);
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
       }
     };
   }, [connectSocket]);
@@ -422,7 +422,6 @@ export const SocketProvider = ({ children }) => {
       staffName: user?.name || 'Unknown'
     });
     return true;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const createReservation = useCallback((reservationData) => {
