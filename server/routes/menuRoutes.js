@@ -3,6 +3,7 @@ const router = express.Router();
 const Menu = require('../models/Menu');
 const Order = require('../models/Order');
 const { body, param, validationResult } = require('express-validator');
+const { authenticate, authorize } = require('../middleware/auth');
 
 // 모든 메뉴 조회
 router.get('/', async (req, res) => {
@@ -132,5 +133,8 @@ router.get('/stats/overview', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// 모든 라우트에 인증 적용
+router.use(authenticate);
 
 module.exports = router;
