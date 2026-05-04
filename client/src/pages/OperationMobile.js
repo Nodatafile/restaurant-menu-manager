@@ -1,17 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const OperationMobile = () => {
-  const { menus, placeOrder, cancelOrder, notifications } = useSocket();
+  const { menus, placeOrder } = useSocket();
   const [selectedRoom, setSelectedRoom] = useState('main');
-  const [activeTab, setActiveTab] = useState('stock'); // stock, orders, preorders
-  const [quickActions, setQuickActions] = useState([]);
+  const [activeTab, setActiveTab] = useState('stock');
   const [stockUpdates, setStockUpdates] = useState({});
   const [pendingChanges, setPendingChanges] = useState([]);
-  const [showNotification, setShowNotification] = useState(false);
-  const [lastNotification, setLastNotification] = useState(null);
 
   const rooms = [
     { id: 'main', name: '메인', icon: '🏠' },
