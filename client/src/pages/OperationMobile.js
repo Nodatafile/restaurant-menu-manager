@@ -291,7 +291,7 @@ const OperationMobile = () => {
 
     useEffect(() => {
       fetchPreOrders();
-    }, [selectedRoom]);
+    }, []); // eslint-disable-line
 
     const fetchPreOrders = async () => {
       try {
