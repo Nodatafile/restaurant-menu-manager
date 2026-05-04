@@ -8,12 +8,12 @@ import { toast } from 'react-toastify';
 
 const AdminPanel = () => {
   const { user } = useAuth();
-  const { menus } = useSocket();
+  const { } = useSocket();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [allMenus, setAllMenus] = useState([]);
   const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [setLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   
@@ -39,6 +39,7 @@ const AdminPanel = () => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'menus') fetchMenus();
     if (activeTab === 'reports') fetchReports();
+    // eslint-disable-next-line
   }, [activeTab, selectedDate]);
 
   const fetchDashboardData = async () => {
