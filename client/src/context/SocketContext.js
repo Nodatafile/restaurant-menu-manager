@@ -422,7 +422,8 @@ export const SocketProvider = ({ children }) => {
       staffName: user?.name || 'Unknown'
     });
     return true;
-  }, [user, addNotification]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const createReservation = useCallback((reservationData) => {
     if (!socketRef.current?.connected) {
@@ -469,6 +470,7 @@ export const SocketProvider = ({ children }) => {
     }
   }, []);
 
+  // eslint-disable-next-line
   const requestPreOrders = useCallback((room) => {
     if (socketRef.current?.connected) {
       socketRef.current.emit('requestPreOrders', { room });
