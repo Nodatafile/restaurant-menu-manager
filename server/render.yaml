@@ -1,0 +1,21 @@
+# server/render.yaml
+services:
+  - type: web
+    name: restaurant-api
+    env: node
+    region: singapore
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRE
+        value: 12h
+      - key: CLIENT_URL
+        sync: false
