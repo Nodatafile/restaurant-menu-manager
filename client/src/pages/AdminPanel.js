@@ -8,7 +8,7 @@ import { toast } from 'react-toastify';
 
 const AdminPanel = () => {
   const { user } = useAuth();
-  const { } = useSocket();
+  useSocket();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [allMenus, setAllMenus] = useState([]);
