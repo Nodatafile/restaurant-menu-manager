@@ -335,4 +335,21 @@ const ReservationTable = ({ reservations, filterRoom, onStatusChange }) => {
   );
 };
 
+// NewReservationForm component (누락된 경우)
+const NewReservationForm = ({ onSubmit, onCancel }) => {
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSubmit({}); }}>
+      <p>예약 폼 (기본)</p>
+      <button type="submit">등록</button>
+      <button type="button" onClick={onCancel}>취소</button>
+    </form>
+  );
+};
+
+// handleStatusChange function (누락된 경우)
+const handleStatusChange = (id, status) => {
+  console.log('Status change:', id, status);
+};
+
 export default ReservationDashboard;
+
