@@ -4,7 +4,11 @@ const cors = require('cors');
 
 // CORS 설정
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: [
+    process.env.CLIENT_URL || 'http://localhost:3000',
+    'https://your-app.vercel.app',  // Vercel URL
+    /\.vercel\.app$/  // Vercel preview URLs
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
