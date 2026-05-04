@@ -1,0 +1,302 @@
+<!-- client/public/index.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#4A90E2" />
+  <meta name="description" content="레스토랑 메뉴 관리 시스템 - 예약실/운영과 통합 관리" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="레스토랑 관리" />
+  
+  <!-- PWA 설정 -->
+  <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+  <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+  <link rel="shortcut icon" href="%PUBLIC_URL%/favicon.ico" />
+  
+  <!-- 폰트 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet" />
+  
+  <title>🍽️ 레스토랑 메뉴 관리 시스템</title>
+  
+  <style>
+    /* 기본 스타일 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: #f8f9fa;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    /* 로딩 스피너 */
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.3s ease-out;
+    }
+    
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    
+    .loading-content {
+      text-align: center;
+      color: white;
+    }
+    
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+      font-size: 18px;
+      font-weight: 500;
+      margin-top: 16px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    /* 오프라인 알림 */
+    #offline-notification {
+      position: fixed;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #ff9800;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 500;
+      z-index: 10000;
+      transition: top 0.3s ease-in-out;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    #offline-notification.show {
+      top: 20px;
+    }
+    
+    /* PWA 설치 배너 */
+    #install-banner {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      background: white;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      z-index: 9998;
+      display: none;
+    }
+    
+    #install-banner.show {
+      display: block;
+      animation: slideUp 0.3s ease-out;
+    }
+    
+    @keyframes slideUp {
+      from {
+        transform: translateY(100px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+    
+    /* 반응형 */
+    @media (max-width: 768px) {
+      #root {
+        max-width: 100vw;
+        overflow-x: hidden;
+      }
+    }
+    
+    @media (min-width: 768px) {
+      #root {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    }
+    
+    /* 스크롤바 스타일 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: #888;
+      border-radius: 3px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: #555;
+    }
+  </style>
+</head>
+<body>
+  <!-- 초기 로딩 화면 -->
+  <div id="loading-screen">
+    <div class="loading-content">
+      <div class="loading-spinner"></div>
+      <div>🍽️</div>
+      <div class="loading-text">레스토랑 관리 시스템 로딩 중...</div>
+    </div>
+  </div>
+  
+  <!-- 오프라인 알림 -->
+  <div id="offline-notification">
+    📡 오프라인 모드 - 네트워크 연결을 확인해주세요
+  </div>
+  
+  <!-- PWA 설치 배너 -->
+  <div id="install-banner">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 32px;">📱</span>
+      <div style="flex: 1;">
+        <div style="font-weight: 700; font-size: 16px;">앱으로 빠르게 사용하기</div>
+        <div style="font-size: 14px; color: #666;">홈 화면에 추가하여 편리하게 사용하세요</div>
+      </div>
+      <button id="install-button" style="background: #4A90E2; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+        설치
+      </button>
+      <button id="dismiss-install" style="background: none; border: none; font-size: 20px; cursor: pointer; padding: 8px;">
+        ✕
+      </button>
+    </div>
+  </div>
+  
+  <!-- React 루트 -->
+  <div id="root"></div>
+  
+  <script>
+    // 로딩 화면 제거
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        var loadingScreen = document.getElementById('loading-screen');
+        if (loadingScreen) {
+          loadingScreen.classList.add('hidden');
+          setTimeout(function() {
+            loadingScreen.remove();
+          }, 300);
+        }
+      }, 500);
+    });
+    
+    // 오프라인 감지
+    window.addEventListener('online', function() {
+      var notification = document.getElementById('offline-notification');
+      if (notification) {
+        notification.classList.remove('show');
+        notification.textContent = '✅ 온라인 연결됨';
+        notification.style.backgroundColor = '#4CAF50';
+        notification.classList.add('show');
+        setTimeout(function() {
+          notification.classList.remove('show');
+        }, 2000);
+      }
+    });
+    
+    window.addEventListener('offline', function() {
+      var notification = document.getElementById('offline-notification');
+      if (notification) {
+        notification.textContent = '📡 오프라인 모드 - 네트워크 연결을 확인해주세요';
+        notification.style.backgroundColor = '#ff9800';
+        notification.classList.add('show');
+      }
+    });
+    
+    // PWA 설치 처리
+    let deferredPrompt;
+    
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      
+      var installBanner = document.getElementById('install-banner');
+      if (installBanner) {
+        installBanner.classList.add('show');
+      }
+    });
+    
+    document.addEventListener('click', function(e) {
+      if (e.target.id === 'install-button') {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then(function(choiceResult) {
+            if (choiceResult.outcome === 'accepted') {
+              console.log('사용자가 PWA 설치를 수락함');
+            }
+            deferredPrompt = null;
+            var installBanner = document.getElementById('install-banner');
+            if (installBanner) {
+              installBanner.classList.remove('show');
+            }
+          });
+        }
+      }
+      
+      if (e.target.id === 'dismiss-install') {
+        var installBanner = document.getElementById('install-banner');
+        if (installBanner) {
+          installBanner.classList.remove('show');
+        }
+      }
+    });
+    
+    // 서비스 워커 등록
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('%PUBLIC_URL%/service-worker.js')
+          .then(function(registration) {
+            console.log('Service Worker 등록 성공:', registration.scope);
+          })
+          .catch(function(error) {
+            console.log('Service Worker 등록 실패:', error);
+          });
+      });
+    }
+  </script>
+</body>
+</html>
