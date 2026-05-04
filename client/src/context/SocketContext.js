@@ -344,7 +344,7 @@ export const SocketProvider = ({ children }) => {
   // 소켓 연결/해제 관리
   // ============================================
   useEffect(() => {
-    const newSocket = connectSocket();
+    connectSocket();
 
     // 클린업
     return () => {
@@ -353,8 +353,9 @@ export const SocketProvider = ({ children }) => {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
+      const timer = reconnectTimerRef.current;
+      if (timer) {
+        clearTimeout(timer);
       }
     };
   }, [connectSocket]);
@@ -421,7 +422,7 @@ export const SocketProvider = ({ children }) => {
       staffName: user?.name || 'Unknown'
     });
     return true;
-  }, [user]);
+  }, [user, addNotification]);
 
   const createReservation = useCallback((reservationData) => {
     if (!socketRef.current?.connected) {
