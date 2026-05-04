@@ -3,7 +3,6 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const mongoose = require('mongoose');
-const path = require('path');
 
 // 미들웨어 임포트
 const { authenticate, authorize } = require('./middleware/auth');
@@ -60,11 +59,6 @@ app.use(requestLogger);
 // 4. Body 파싱
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// 5. 정적 파일 서빙 (프로덕션)
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/build')));
-}
 
 // 6. API 속도 제한
 app.use('/api/', apiLimiter);
@@ -128,15 +122,6 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'development'
   });
 });
-
-// ============================================
-// 프로덕션 환경: React 앱 서빙
-// ============================================
-if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
-  });
-}
 
 // ============================================
 // Socket.io 이벤트 핸들러
